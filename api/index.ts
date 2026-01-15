@@ -10,10 +10,13 @@ import { ServiceError } from "../src/Types/index.ts";
 import { ErrorPage } from "../src/pages/Error.ts";
 import { cacheProvider } from "../src/config/cache.ts";
 
+// Get base URL from environment variable, fallback to default
+const BASE_URL = Deno.env.get("BASE_URL") || "https://github-profile-trophy.vercel.app/";
+
 const serviceProvider = new GithubApiService();
 const client = new GithubRepositoryService(serviceProvider).repository;
 
-// Build cache control header with optimized caching strategy
+// Build cache control header
 const cacheControlHeader = [
   "public",
   `max-age=${CONSTANTS.CACHE_MAX_AGE}`,
@@ -21,20 +24,16 @@ const cacheControlHeader = [
   `stale-while-revalidate=${CONSTANTS.STALE_WHILE_REVALIDATE}`,
 ].join(", ");
 
-const defaultHeaders = new Headers(
-  {
-    "Content-Type": "image/svg+xml",
-    "Cache-Control": cacheControlHeader,
-  },
-);
+const defaultHeaders = new Headers({
+  "Content-Type": "image/svg+xml",
+  "Cache-Control": cacheControlHeader,
+});
 
 export default (request: Request) =>
   staticRenderRegeneration(request, {
     revalidate: CONSTANTS.REVALIDATE_TIME,
     headers: defaultHeaders,
-  }, function (req: Request) {
-    return app(req);
-  });
+  }, (req: Request) => app(req));
 
 async function app(req: Request): Promise<Response> {
   const params = parseParams(req);
@@ -42,91 +41,70 @@ async function app(req: Request): Promise<Response> {
   const row = params.getNumberValue("row", CONSTANTS.DEFAULT_MAX_ROW);
   const column = params.getNumberValue("column", CONSTANTS.DEFAULT_MAX_COLUMN);
   const themeParam: string = params.getStringValue("theme", "default");
-  if (username === null) {
-    const [base] = req.url.split("?");
-    const error = new Error400(
-      `<section>
-      <div>
-        <h2>"username" is a required query parameter</h2>
-        <p>The URL should look like
-        <div>
-          <p id="base-show">${base}?username=USERNAME</p>
-          <button>Copy Base Url</button>
-          <span id="temporary-span"></span>
-        </div>where
-        <code>USERNAME</code> is <em>your GitHub username.</em>
-      </div>
-      <div>
-        <h2>You can use this form: </h2>
-        <p>Enter your username and click get trophies</p>
-        <form action="https://github-profile-trophy.vercel.app/" method="get">
-          <label for="username">GitHub Username</label>
-          <input type="text" name="username" id="username" placeholder="Ex. gabriel-logan" required>
-          <label for="theme">Theme (Optional)</label>
-          <input type="text" name="theme" id="theme" placeholder="Ex. onedark" value="light">
-          <text>
-            See all the available themes
-            <a href="https://github.com/ryo-ma/github-profile-trophy?tab=readme-ov-file#apply-theme" target="_blank">here</a>
-          </text>
-          <br>
-          <button type="submit">Get Trophy&apos;s</button>
-        </form>
-      </div>
-      <script>
-        const base = "https://github-profile-trophy.vercel.app/";
-        const button = document.querySelector("button");
-        const input = document.querySelector("input");
-        const temporarySpan = document.querySelector("#temporary-span");
 
-        button.addEventListener("click", () => {
-          navigator.clipboard.writeText(document.querySelector("#base-show").textContent);
-          temporarySpan.textContent = "Copied!";
-          setTimeout(() => {
-            temporarySpan.textContent = "";
-          }, 1500);
-        });
-      </script>
-    </section>`,
-    );
-    return new Response(
-      error.render(),
-      {
-        status: error.status,
-        headers: new Headers({
-          "Content-Type": "text",
-          "Cache-Control": cacheControlHeader,
-        }),
-      },
-    );
+  if (!username) {
+    const [base] = req.url.split("?");
+    const error = new Error400(`
+      <section>
+        <div>
+          <h2>"username" is a required query parameter</h2>
+          <p>The URL should look like
+          <div>
+            <p id="base-show">${BASE_URL}?username=USERNAME</p>
+            <button>Copy Base Url</button>
+            <span id="temporary-span"></span>
+          </div>where <code>USERNAME</code> is <em>your GitHub username.</em>
+        </div>
+        <div>
+          <h2>You can use this form: </h2>
+          <p>Enter your username and click get trophies</p>
+          <form action="${BASE_URL}" method="get">
+            <label for="username">GitHub Username</label>
+            <input type="text" name="username" id="username" placeholder="Ex. gabriel-logan" required>
+            <label for="theme">Theme (Optional)</label>
+            <input type="text" name="theme" id="theme" placeholder="Ex. onedark" value="light">
+            <text>
+              See all the available themes
+              <a href="https://github.com/ryo-ma/github-profile-trophy?tab=readme-ov-file#apply-theme" target="_blank">here</a>
+            </text>
+            <br>
+            <button type="submit">Get Trophy&apos;s</button>
+          </form>
+        </div>
+        <script>
+          const button = document.querySelector("button");
+          const temporarySpan = document.querySelector("#temporary-span");
+          button.addEventListener("click", () => {
+            navigator.clipboard.writeText(document.querySelector("#base-show").textContent);
+            temporarySpan.textContent = "Copied!";
+            setTimeout(() => temporarySpan.textContent = "", 1500);
+          });
+        </script>
+      </section>
+    `);
+
+    return new Response(error.render(), {
+      status: error.status,
+      headers: new Headers({
+        "Content-Type": "text/html",
+        "Cache-Control": cacheControlHeader,
+      }),
+    });
   }
+
   let theme: Theme = COLORS.default;
   if (Object.keys(COLORS).includes(themeParam)) {
     theme = COLORS[themeParam];
   }
-  const marginWidth = params.getNumberValue(
-    "margin-w",
-    CONSTANTS.DEFAULT_MARGIN_W,
-  );
-  const paddingHeight = params.getNumberValue(
-    "margin-h",
-    CONSTANTS.DEFAULT_MARGIN_H,
-  );
-  const noBackground = params.getBooleanValue(
-    "no-bg",
-    CONSTANTS.DEFAULT_NO_BACKGROUND,
-  );
-  const noFrame = params.getBooleanValue(
-    "no-frame",
-    CONSTANTS.DEFAULT_NO_FRAME,
-  );
-  const titles: Array<string> = params.getAll("title").flatMap((r) =>
-    r.split(",")
-  ).map((r) => r.trim());
-  const ranks: Array<string> = params.getAll("rank").flatMap((r) =>
-    r.split(",")
-  ).map((r) => r.trim());
 
-  const userKeyCache = ["v1", username].join("-");
+  const marginWidth = params.getNumberValue("margin-w", CONSTANTS.DEFAULT_MARGIN_W);
+  const paddingHeight = params.getNumberValue("margin-h", CONSTANTS.DEFAULT_MARGIN_H);
+  const noBackground = params.getBooleanValue("no-bg", CONSTANTS.DEFAULT_NO_BACKGROUND);
+  const noFrame = params.getBooleanValue("no-frame", CONSTANTS.DEFAULT_NO_FRAME);
+  const titles: string[] = params.getAll("title").flatMap(r => r.split(",")).map(r => r.trim());
+  const ranks: string[] = params.getAll("rank").flatMap(r => r.split(",")).map(r => r.trim());
+
+  const userKeyCache = `v1-${username}`;
   const userInfoCached = await cacheProvider.get(userKeyCache) || "{}";
   let userInfo = JSON.parse(userInfoCached);
   const hasCache = !!Object.keys(userInfo).length;
@@ -139,7 +117,7 @@ async function app(req: Request): Promise<Response> {
         {
           status: userResponseInfo.code,
           headers: new Headers({
-            "Content-Type": "text",
+            "Content-Type": "text/html",
             "Cache-Control": cacheControlHeader,
           }),
         },
@@ -148,6 +126,7 @@ async function app(req: Request): Promise<Response> {
     userInfo = userResponseInfo;
     await cacheProvider.set(userKeyCache, JSON.stringify(userInfo));
   }
+
   // Success Response
   return new Response(
     new Card(
